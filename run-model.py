@@ -36,6 +36,8 @@ if __name__ == "__main__":
     # Depois o pipeline
     pipeline, last_node = create_pipeline(args.data, executor, args.attribute, pipeline_save_location="train_model_pipeline.svg")
     # Executamos e pegamos o resultado
-    res = run(pipeline, last_node)
+    res = run(pipeline, last_node) 
+
+    
     print(f"O resultado é um array com o shape: {res.shape}")
     
