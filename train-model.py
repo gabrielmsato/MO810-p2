@@ -17,6 +17,13 @@ ENVELOPE = "ENVELOPE"
 INST_FREQ = "INST-FREQ"
 COS_INST_PHASE = "COS-INST-PHASE"
 
+# get features
+# pipeline get features
+# relatorio
+# pergunta do classroom
+# load model 
+# https://mljar.com/blog/xgboost-save-load-python/
+
 def getFeatures(data, sample_window:int, trace_window:int, inline_window:int):
     """Extract features for seismic attributes calculation
 
