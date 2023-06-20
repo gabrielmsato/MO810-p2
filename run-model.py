@@ -33,10 +33,9 @@ if __name__ == "__main__":
    
     # Criamos o executor
     executor = create_executor(args.address)
-    # Extrai as features
-    features = getNeighbors
     # Depois o pipeline
     pipeline, last_node = create_pipeline(args.data, executor, args.attribute, pipeline_save_location="train_model_pipeline.svg")
     # Executamos e pegamos o resultado
     res = run(pipeline, last_node)
     print(f"O resultado é um array com o shape: {res.shape}")
+    
