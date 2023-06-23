@@ -13,6 +13,7 @@ from dasf.pipeline import Pipeline
 from dasf.datasets import Dataset
 from dasf.pipeline.executors import DaskPipelineExecutor
 from dasf.utils.decorators import task_handler
+from dasf.utils.types import is_dask_array
 
 ENVELOPE = "ENVELOPE"
 INST_FREQ = "INST-FREQ"
@@ -245,7 +246,7 @@ class GetSelectedFeatures(Transform):
         self.side = side
         self.neighbor = neighbor
 
-    def _lazy_transform_cpu(self, data):
+    def __transform_generic(self, data):
         """Extract selected features for seismic attributes calculation
 
         Parameters
@@ -258,8 +259,10 @@ class GetSelectedFeatures(Transform):
         DaskArray
             Array with features
         """
-
-        feature = data.copy()
+        if is_dask_array(data):
+            feature = data.copy()
+        else:
+            feature = np.copy(data)
 
         # Sample window
         if (self.axis == 2):
@@ -269,13 +272,20 @@ class GetSelectedFeatures(Transform):
                 for i in range(self.neighbor):
                     feature[:,:,d_size-1] = feature[:,:,0]
                     # Rolling array by 1 position for left neighbor
-                    feature = da.roll(data, 1, axis=2)
+                    if is_dask_array:
+                        feature = da.roll(data, 1, axis=2)
+                    else:
+                        feature = np.roll(data, 1, axis=2)
+
             elif self.side == 1:
                 # Padding for right border data
                 for i in range(self.neighbor):
                     feature[:,:,0] = feature[:,:,d_size-1]
                     # Rolling array by 1 position for left neighbor
-                    feature = da.roll(data, -1, axis=2)
+                    if is_dask_array:
+                        feature = da.roll(data, -1, axis=2)
+                    else:
+                        feature = np.roll(data, -1, axis=2)
             else:
                 raise Exception("Invalid Side")
             
@@ -287,13 +297,21 @@ class GetSelectedFeatures(Transform):
                 for i in range(self.neighbor):
                     feature[:,d_size-1,:] = feature[:,0,:]
                     # Rolling array by 1 position for top neighbor
-                    feature = da.roll(data, 1, axis=1)
+                    if is_dask_array:
+                        feature = da.roll(data, 1, axis=1)
+                    else:
+                        feature = np.roll(data, 1, axis=1)
+
             elif self.side == 1:
                 # Padding for right border data
                 for i in range(self.neighbor):
                     feature[:,0,:] = feature[:,d_size-1,:]
                     # Rolling array by 1 position for bot neighbor
-                    feature = da.roll(data, -1, axis=1)
+                    if is_dask_array:
+                        feature = da.roll(data, -1, axis=1)
+                    else:
+                        feature = np.roll(data, -1, axis=1)
+
             else:
                 raise Exception("Invalid Side")
             
@@ -305,13 +323,21 @@ class GetSelectedFeatures(Transform):
                 for i in range(self.neighbor):
                     feature[d_size-1,:,:] = feature[0,:,:]
                     # Rolling array by 1 position for front inline dimension neighbor
-                    feature = da.roll(data, 1, axis=0)
+                    if is_dask_array:
+                        feature = da.roll(data, 1, axis=0)
+                    else:
+                        feature = np.roll(data, 1, axis=0)
+
             elif self.side == 1:
                 # Padding for right border data
                 for i in range(self.neighbor):
                     feature[0,:,:] = feature[d_size-1,:,:]
                     # Rolling array by 1 position for back inline dimension neighbor
-                    feature = da.roll(data, -1, axis=0)
+                    if is_dask_array:
+                        feature = da.roll(data, -1, axis=0)
+                    else:
+                        feature = np.roll(data, -1, axis=0)
+
             else:
                 raise Exception("Invalid Side")
         else:
@@ -319,104 +345,52 @@ class GetSelectedFeatures(Transform):
         
         
         return feature
+
+    def _lazy_transform_cpu(self, data):
+        return self.__transform_generic(data)
     
     def _transform_cpu(self, data):
-        """Extract features for seismic attributes calculation
+        return self.__transform_generic(data)
+
+    
+    
+class GetFeatures_fromDataframe(Transform):
+    """Split dataframe get features
+    """ 
+    def __transform_generic(self, dataframe):
+        """Get n - 1 first columns of dataframe
 
         Parameters
         ----------
-        data: DaskArray
-            Dataset for feature extraction
-
-        Returns
-        -------
-        DaskArray
-            Array with features
+        dataframe: Dask Dataframe
+            Dataframe to get labels
         """
-        f_size = data.size(data)
-        features = np.copy(data).reshape((1, f_size))
-
-        # Get elements for sample window
-        # Get top neighbor
-        n1 = np.copy(self.ata)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.samples_window):
-            # Padding for bottom data
-            n1[:,:,254] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=2)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[:,:,0] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=2)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-        # Get elements for trace window
-        # Get top neighbor
-        n1 = np.copy(data)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.trace_window):
-            # Padding for bottom data
-            n1[:,700,:] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=1)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[:,0,:] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=1)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-        # Get elements for inline window
-        # Get top neighbor
-        n1 = np.copy(data)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.inline_window):
-            # Padding for bottom data
-            n1[400,:,:] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=0)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[0,:,:] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=0)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-
-        return features
-
-class GetLabels_fromDataframe(Transform):
-    """Split dataframe to features and labels
-    """
-    def _lazy_transform_cpu(self, dataframe):
-        print("alo")
-        return dataframe["lbl"]
-    
-    def transform(self, dataframe):
-        return dataframe["lbl"]
-    
-class GetFeatures_fromDataframe(Transform):
-    """Split dataframe to features and labels
-    """ 
-    def _lazy_transform_cpu(self, dataframe):
         return dataframe.iloc[:,:-1]
+
+    def _lazy_transform_cpu(self, dataframe):
+        return self.__transform_generic(dataframe)
     
     def _transform_cpu(self, dataframe):
-        return dataframe.iloc[:,:-1]
+        return self.__transform_generic(dataframe)
+    
+class GetLabels_fromDataframe(Transform):
+    """Split dataframe to get labels
+    """
+    def __transform_generic(self, dataframe):
+        """Get last column of dataframe
+
+        Parameters
+        ----------
+        dataframe: Dask Dataframe
+            Dataframe to get labelss
+        """
+        return dataframe["lbl"]
+    
+    def _lazy_transform_cpu(self, dataframe):
+        return self.__transform_generic(dataframe)
+    
+    def transform(self, dataframe):
+        return self.__transform_generic(dataframe)
 
 class MyDataset(Dataset):
     """Classe para carregar dados de um arquivo .npy ou .zarr
