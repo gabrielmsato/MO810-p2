@@ -14,6 +14,7 @@ from dasf.datasets import Dataset
 from dasf.pipeline.executors import DaskPipelineExecutor
 from dasf.utils.decorators import task_handler
 from dasf.utils.types import is_dask_array
+from dask.distributed import Client, performance_report
 
 ENVELOPE = "ENVELOPE"
 INST_FREQ = "INST-FREQ"
@@ -538,8 +539,6 @@ def create_pipeline(dataset_path: str,
     pipeline.add(att, X=dataset)
     dict["lbl"] = att
 
-    print(dict.keys())
-
     pipeline.add(array2df, **dict)
     pipeline.add(features, dataframe=array2df)
     pipeline.add(labels, dataframe=array2df)
@@ -597,18 +596,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Criamos o executor
-    executor = create_executor(args.address)
-    # Depois o pipeline
-    pipeline, last_node = create_pipeline(args.data, 
-                                executor, args.attribute, 
-                                args.samples_window, 
-                                args.trace_window, 
-                                args.inline_window, 
-                                pipeline_save_location="train_model_pipeline.svg")
+    client = Client(args.address.replace("tcp://", ""))
+    with performance_report(filename=f"Dashboard_{args.samples_window}{args.trace_window}{args.inline_window}.html"):
+        executor = create_executor(args.address)
+        # Depois o pipeline
+        pipeline, last_node = create_pipeline(args.data, 
+                                    executor, args.attribute, 
+                                    args.samples_window, 
+                                    args.trace_window, 
+                                    args.inline_window, 
+                                    pipeline_save_location="train_model_pipeline_1.svg")
 
-    # Executamos e pegamos o resultado
-    res = run(pipeline, last_node)
-    #Salvando o modelo
-    res.save_model(args.output)
-    # res.to_csv("features_dataframe.csv")
-    # print(f"O resultado é um array com o shape: {res.shape}")
+        # Executamos e pegamos o resultado
+        res = run(pipeline, last_node)
+        #Salvando o modelo
+        res.save_model(args.output)
+        # res.to_csv("features_dataframe.csv")
+        # print(f"O resultado é um array com o shape: {res.shape}")

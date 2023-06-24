@@ -1,0 +1,1 @@
+docker run -it -v $(pwd):$(pwd) -e HOME=$(pwd) -w $(pwd) -u $(id -u):$(id -g) --network=host dasf-seismic:cpu python3 train-model2.py --attribute "COS-INST-PHASE" --data data/F3_train2.zarr --samples-window 2 --trace-window 2 --inline-window 2 --address tcp://143.106.16.206:8786  --output "cos222_3.json"

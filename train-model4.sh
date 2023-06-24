@@ -1,0 +1,1 @@
+docker run -it -v $(pwd):$(pwd) -e HOME=$(pwd) -w $(pwd) -u $(id -u):$(id -g) --network=host dasf-seismic:cpu python3 train-model4.py --attribute "COS-INST-PHASE" --data data/F3_train4.zarr --samples-window 4 --trace-window 0 --inline-window 0 --address tcp://143.106.16.213:8786 --output "cos400_2.json"
