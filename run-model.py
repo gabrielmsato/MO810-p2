@@ -7,7 +7,7 @@ import time
 import json
 
 from dasf_seismic.attributes.complex_trace import Envelope, InstantaneousFrequency, CosineInstantaneousPhase
-from dasf.ml.xgboost import XGBRegressor
+# from dasf.ml.xgboost import XGBRegressor
 from dasf.transforms import ArraysToDataFrame, PersistDaskData, Transform
 from dasf.pipeline import Pipeline
 from dasf.datasets import Dataset
@@ -15,9 +15,92 @@ from dasf.pipeline.executors import DaskPipelineExecutor
 from dasf.utils.decorators import task_handler
 from dasf.utils.types import is_dask_array
 
+import xgboost as xgb
+
+from dasf.transforms import Fit
+from dasf.transforms import Predict
+from dasf.transforms import FitPredict
+
 ENVELOPE = "ENVELOPE"
 INST_FREQ = "INST-FREQ"
 COS_INST_PHASE = "COS-INST-PHASE"
+
+class MyXGBRegressor(Predict):
+    def __init__(
+        self,
+        max_depth=None,
+        max_leaves=None,
+        max_bin=None,
+        grow_policy=None,
+        learning_rate=None,
+        n_estimators=100,
+        verbosity=None,
+        objective=None,
+        booster=None,
+        tree_method=None,
+        n_jobs=None,
+        gamma=None,
+        min_child_weight=None,
+        max_delta_step=None,
+        subsample=None,
+        sampling_method=None,
+        colsample_bytree=None,
+        colsample_bylevel=None,
+        colsample_bynode=None,
+        reg_alpha=None,
+        reg_lambda=None,
+        scale_pos_weight=None,
+        base_score=None,
+        random_state=None,
+        num_parallel_tree=None,
+        monotone_constraints=None,
+        interaction_constraints=None,
+        importance_type=None,
+        gpu_id=None,
+        validate_parameters=None,
+        predictor=None,
+        enable_categorical=False,
+        max_cat_to_onehot=None,
+        eval_metric=None,
+        early_stopping_rounds=None,
+        callbacks=None,
+        **kwargs
+    ):
+
+        self.__xgb_mcpu = xgb.dask.DaskXGBRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            max_leaves=max_leaves,
+            max_bin=max_bin,
+            grow_policy=grow_policy,
+            learning_rate=learning_rate,
+            verbosity=verbosity,
+            objective=objective,
+            booster=booster,
+            tree_method=tree_method,
+            n_jobs=n_jobs,
+            gamma=gamma,
+            min_child_weight=min_child_weight,
+            max_delta_step=max_delta_step,
+            subsample=subsample,
+            sampling_method=sampling_method,
+            colsample_bytree=colsample_bytree,
+            colsample_bylevel=colsample_bylevel,
+            colsample_bynode=colsample_bynode,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
+            scale_pos_weight=scale_pos_weight,
+            base_score=base_score,
+            random_state=random_state,
+        )
+        return self.__xgb_mcpu.load_model(kwargs["model"])
+
+    
+    def _lazy_predict_cpu(self, X, sample_weight=None, **kwargs):
+        return self.__xgb_mcpu.predict(X=X, **kwargs)
+    
+    def _predict_cpu(self, X, sample_weight=None, **kwargs):
+        return self.__xgb_cpu.predict(X=X, **kwargs)
 
     
 class GetSelectedFeatures(Transform):
@@ -260,10 +343,7 @@ def create_pipeline(dataset_path: str,
     array2df = ArraysToDataFrame()
     # features = GetFeatures_fromDataframe()
 
-    with open(ml_model, "r") as f:
-        f_model = json.load(f)
-    print(f_model)
-    xgboost = XGBRegressor(f_model)
+    xgboost = MyXGBRegressor(model=ml_model)
     
     # Compondo o pipeline
     pipeline = Pipeline(
@@ -297,9 +377,6 @@ def create_pipeline(dataset_path: str,
         feature_extractor = GetSelectedFeatures(axis=0, side=1, neighbor=i+1)
         pipeline.add(feature_extractor, data=dataset)
         dict["fiw_r_"+str(i+1)] = feature_extractor 
-    
-
-    print(dict.keys())
 
     pipeline.add(array2df, **dict)
     pipeline.add(xgboost.predict, X=array2df)
@@ -367,3 +444,9 @@ if __name__ == "__main__":
     print(f"O resultado é um array com o shape: {res.shape}")
     # Salvando o atributo sismico
     np.save(args.output, res)
+
+    #     # Podemos fazer o reshape e printar a primeira inline
+    # res = res.values.reshape((401, 701, 255))
+    # import matplotlib.pyplot as plt
+    # plt.imsave("inline0.png", res[0], cmap="Reds")
+    # print(f"Figura da inline 0 salva")
