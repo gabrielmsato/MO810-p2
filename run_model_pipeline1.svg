@@ -1,0 +1,8 @@
+digraph "F3 seismic attributes" {
+	41944838 [label="ArraysToDataFrame.transform"]
+	3072 [label="MyDataset.load"]
+	3072 -> 41944838 [label=f0]
+	41944655 [label="MyXGBRegressor.predict"]
+	41944838 [label="ArraysToDataFrame.transform"]
+	41944838 -> 41944655 [label=X]
+}

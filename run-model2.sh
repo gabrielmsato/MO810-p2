@@ -1,0 +1,1 @@
+docker run -it -v $(pwd):$(pwd) -e HOME=$(pwd) -w $(pwd) -u $(id -u):$(id -g) --network=host dasf-seismic:cpu python3 run-model2.py --ml-model cos222_4.json --data data/F3_train1.zarr --samples-window 2 --trace-window 2 --inline-window 2 --address tcp://143.106.16.203:8786 --output data/cos222_4.npy

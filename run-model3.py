@@ -2,12 +2,12 @@ import argparse
 from pathlib import Path
 from typing import Callable, Tuple
 import dask.array as da
-import dask.dataframe as df
 import numpy as np
 import time
+import json
 
 from dasf_seismic.attributes.complex_trace import Envelope, InstantaneousFrequency, CosineInstantaneousPhase
-from dasf.ml.xgboost import XGBRegressor
+# from dasf.ml.xgboost import XGBRegressor
 from dasf.transforms import ArraysToDataFrame, PersistDaskData, Transform
 from dasf.pipeline import Pipeline
 from dasf.datasets import Dataset
@@ -16,212 +16,93 @@ from dasf.utils.decorators import task_handler
 from dasf.utils.types import is_dask_array
 from dask.distributed import Client, performance_report
 
+import xgboost as xgb
+
+from dasf.transforms import Fit
+from dasf.transforms import Predict
+from dasf.transforms import FitPredict
+
 ENVELOPE = "ENVELOPE"
 INST_FREQ = "INST-FREQ"
 COS_INST_PHASE = "COS-INST-PHASE"
 
-# get features
-# pipeline get features
-# relatorio
-# pergunta do classroom
-# load model 
-# https://mljar.com/blog/xgboost-save-load-python/
+class MyXGBRegressor(Predict):
+    def __init__(
+        self,
+        max_depth=None,
+        max_leaves=None,
+        max_bin=None,
+        grow_policy=None,
+        learning_rate=None,
+        n_estimators=100,
+        verbosity=None,
+        objective=None,
+        booster=None,
+        tree_method=None,
+        n_jobs=None,
+        gamma=None,
+        min_child_weight=None,
+        max_delta_step=None,
+        subsample=None,
+        sampling_method=None,
+        colsample_bytree=None,
+        colsample_bylevel=None,
+        colsample_bynode=None,
+        reg_alpha=None,
+        reg_lambda=None,
+        scale_pos_weight=None,
+        base_score=None,
+        random_state=None,
+        num_parallel_tree=None,
+        monotone_constraints=None,
+        interaction_constraints=None,
+        importance_type=None,
+        gpu_id=None,
+        validate_parameters=None,
+        predictor=None,
+        enable_categorical=False,
+        max_cat_to_onehot=None,
+        eval_metric=None,
+        early_stopping_rounds=None,
+        callbacks=None,
+        **kwargs
+    ):
 
-class GetFeatures(Transform):
-    """Class for get features for seismic attributes calculation
-    """
-    def __init__(self, samples_window: int, trace_window: int, inline_window: int):
-        """Extract features for seismic attributes calculation
+        self.__xgb_mcpu = xgb.dask.DaskXGBRegressor(
+            n_estimators=n_estimators,
+            max_depth=max_depth,
+            max_leaves=max_leaves,
+            max_bin=max_bin,
+            grow_policy=grow_policy,
+            learning_rate=learning_rate,
+            verbosity=verbosity,
+            objective=objective,
+            booster=booster,
+            tree_method=tree_method,
+            n_jobs=n_jobs,
+            gamma=gamma,
+            min_child_weight=min_child_weight,
+            max_delta_step=max_delta_step,
+            subsample=subsample,
+            sampling_method=sampling_method,
+            colsample_bytree=colsample_bytree,
+            colsample_bylevel=colsample_bylevel,
+            colsample_bynode=colsample_bynode,
+            reg_alpha=reg_alpha,
+            reg_lambda=reg_lambda,
+            scale_pos_weight=scale_pos_weight,
+            base_score=base_score,
+            random_state=random_state,
+        )
+        return self.__xgb_mcpu.load_model(kwargs["model"])
 
-        Parameters
-        ----------
-        sample_window: int
-            Number of neighbors in sample dimension
-        trace_window: int
-            Number of neighbors in trace dimension
-        inline_window: int
-            Number of neighbors in inline dimension
-
-        Returns
-        -------
-        DaskArray
-            Array with features
-        """
-        self.samples_window = samples_window
-        self.trace_window = trace_window
-        self.inline_window = inline_window
-
-    def _lazy_transform_cpu(self, data):
-        """Extract features for seismic attributes calculation
-
-        Parameters
-        ----------
-        data: DaskArray
-            Dataset for feature extraction
-
-        Returns
-        -------
-        DaskArray
-            Array with features
-        """
-        features = data.copy()
-
-        # Get elements for sample window
-
-        n1 = data.copy()
-        n2 = data.copy()
-        n_features = 1
-        for i in range(self.samples_window):
-            # Padding for right border data
-            n1[:,:,254] = 0
-            # Rolling array by 1 position for right neighbor
-            n1 = da.roll(data, 1, axis=2)
-            # Adding neighbors in features array
-            # features = da.append(features, n1, axis=0)
-            features[str(n_features)]= n1
-            n_features += 1
-
-
-            # Padding for left border data
-            n2[:,:,0] = 0
-            # Rolling array by 1 position for left neighbor
-            n2 = da.roll(data, -1, axis=2)
-            # Adding neighbors in features array
-            # features = da.append(features, n2, axis=0)
-            features[str(n_features)]= n2
-
-            n_features += 1
-
-
-        # Get elements for trace window
-        # Get bot neighbor
-        n2 = data.copy()
-        for i in range(self.trace_window):
-            # Padding for bottom border data
-            n1[:,700,:] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = da.roll(data, 1, axis=1)
-            # Adding neighbors in features array
-            # features = da.append(features, n1, axis=0)
-            features[str(n_features)]= n1
-            n_features += 1
-
-
-            # Padding for top border data
-            n2[:,0,:] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = da.roll(data, -1, axis=1)
-            # Adding neighbors in features array
-            # features = da.append(features, n2, axis=0)
-            features[str(n_features)]= n2
-            n_features += 1
-
-
-        # Get elements for inline window
-        # Get top neighbor
-        n1 = data.copy()
-        # Get bot neighbor
-        n2 = data.copy()
-        for i in range(self.inline_window):
-            # Padding for front inline dimension border data
-            n1[9,:,:] = 0
-            # n1[400,:,:] = 0
-            # Rolling array by 1 position for front inline dimension neighbor
-            n1 = da.roll(data, 1, axis=0)
-            # Adding neighbors in features array
-            features[str(n_features)]= n1
-            n_features += 1
-
-            # Padding for back inline dimension border data
-            n2[0,:,:] = 0
-            # Rolling array by 1 position for back inline dimension neighbor
-            n2 = da.roll(data, -1, axis=0)
-            # Adding neighbors in features array
-            features[str(n_features)]= n2
-            n_features += 1
-
-        # print(n_features, data[:,0,0].size, data[0,:,0].size, data[0,0,:].size)
-        # print(features.size)
-        return features
     
-    def _transform_cpu(self, data):
-        """Extract features for seismic attributes calculation
+    def _lazy_predict_cpu(self, X, sample_weight=None, **kwargs):
+        return self.__xgb_mcpu.predict(X=X, **kwargs)
+    
+    def _predict_cpu(self, X, sample_weight=None, **kwargs):
+        return self.__xgb_cpu.predict(X=X, **kwargs)
 
-        Parameters
-        ----------
-        data: DaskArray
-            Dataset for feature extraction
-
-        Returns
-        -------
-        DaskArray
-            Array with features
-        """
-        f_size = data.size(data)
-        features = np.copy(data).reshape((1, f_size))
-
-        # Get elements for sample window
-        # Get top neighbor
-        n1 = np.copy(self.ata)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.samples_window):
-            # Padding for bottom data
-            n1[:,:,254] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=2)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[:,:,0] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=2)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-        # Get elements for trace window
-        # Get top neighbor
-        n1 = np.copy(data)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.trace_window):
-            # Padding for bottom data
-            n1[:,700,:] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=1)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[:,0,:] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=1)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-        # Get elements for inline window
-        # Get top neighbor
-        n1 = np.copy(data)
-        # Get bot neighbor
-        n2 = np.copy(data)
-        for i in range(self.inline_window):
-            # Padding for bottom data
-            n1[400,:,:] = 0
-            # Rolling array by 1 position for top neighbor
-            n1 = np.roll(data, 1, axis=0)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n1, (1, f_size)), axis=0)
-
-            # Padding for bottom data
-            n2[0,:,:] = 0
-            # Rolling array by 1 position for bot neighbor
-            n2 = np.roll(data, -1, axis=0)
-            # Adding neighbors in features array
-            features = np.append(features, np.reshape(n2, (1, f_size)), axis=0)
-
-
-        return features
     
 class GetSelectedFeatures(Transform):
     """Class for get features for seismic attributes calculation
@@ -353,45 +234,24 @@ class GetSelectedFeatures(Transform):
     def _transform_cpu(self, data):
         return self.__transform_generic(data)
 
-    
-    
-class GetFeatures_fromDataframe(Transform):
-    """Split dataframe get features
-    """ 
-    def __transform_generic(self, dataframe):
-        """Get n - 1 first columns of dataframe
+# class GetFeatures_fromDataframe(Transform):
+#     """Split dataframe get features
+#     """ 
+#     def __transform_generic(self, dataframe):
+#         """Get n - 1 first columns of dataframe
 
-        Parameters
-        ----------
-        dataframe: Dask Dataframe
-            Dataframe to get labels
-        """
-        return dataframe.iloc[:,:-1]
+#         Parameters
+#         ----------
+#         dataframe: Dask Dataframe
+#             Dataframe to get labels
+#         """
+#         return dataframe.iloc[:,:-1]
 
-    def _lazy_transform_cpu(self, dataframe):
-        return self.__transform_generic(dataframe)
+#     def _lazy_transform_cpu(self, dataframe):
+#         return self.__transform_generic(dataframe)
     
-    def _transform_cpu(self, dataframe):
-        return self.__transform_generic(dataframe)
-    
-class GetLabels_fromDataframe(Transform):
-    """Split dataframe to get labels
-    """
-    def __transform_generic(self, dataframe):
-        """Get last column of dataframe
-
-        Parameters
-        ----------
-        dataframe: Dask Dataframe
-            Dataframe to get labelss
-        """
-        return dataframe["lbl"]
-    
-    def _lazy_transform_cpu(self, dataframe):
-        return self.__transform_generic(dataframe)
-    
-    def transform(self, dataframe):
-        return self.__transform_generic(dataframe)
+#     def _transform_cpu(self, dataframe):
+#         return self.__transform_generic(dataframe)
 
 class MyDataset(Dataset):
     """Classe para carregar dados de um arquivo .npy ou .zarr
@@ -410,8 +270,8 @@ class MyDataset(Dataset):
         """
         super().__init__(name=name)
         self.data_path = data_path
-        chunks = {0: "auto",1: "auto", 2: -1} 
         self.chunks = chunks
+        chunks = {0: "auto",1: -1, 2: -1} 
         
     def _lazy_load_cpu(self):
         return da.from_zarr(self.data_path, chunks=self.chunks)
@@ -446,7 +306,7 @@ def create_executor(address: str=None) -> DaskPipelineExecutor:
 
 def create_pipeline(dataset_path: str, 
                     executor: DaskPipelineExecutor, 
-                    attribute: str, 
+                    ml_model: str, 
                     samples_window: int, 
                     trace_window: int, 
                     inline_window: int, 
@@ -459,8 +319,8 @@ def create_pipeline(dataset_path: str,
         Caminho para o arquivo .zarr
     executor : DaskPipelineExecutor
         Executor Dask
-    attribute: str
-        Atributo sismico a ser calculado
+    ml_model: str
+        Modelo de machine learning (.json)
     samples_window: int
         Numero de vizinhos na dimensao das amostras
     trace_window: int
@@ -469,8 +329,6 @@ def create_pipeline(dataset_path: str,
         Numero de vizinhos na dimensao das inlines
     pipeline_save_location:
         Local onde a figura do pipeline criado será salva
-    output:
-        Local onde o modelo será salvo (.json)
 
     Returns
     -------
@@ -482,31 +340,17 @@ def create_pipeline(dataset_path: str,
     print("Criando pipeline....")
     # Declarando os operadores necessários
     dataset = MyDataset(name="F3 dataset", data_path=dataset_path)
-
-    # Identifica o atributo escolhido
-    if attribute == ENVELOPE:
-        att = Envelope()
-    elif attribute == INST_FREQ:
-        att = InstantaneousFrequency()
-    elif attribute == COS_INST_PHASE:
-        att = CosineInstantaneousPhase()
-    else:
-        raise Exception("Invalid Attribute")
-
+    
     array2df = ArraysToDataFrame()
+    # features = GetFeatures_fromDataframe()
 
-    xgboost = XGBRegressor()
-
-    features = GetFeatures_fromDataframe()
-    labels = GetLabels_fromDataframe()
+    xgboost = MyXGBRegressor(model=ml_model)
     
     # Compondo o pipeline
     pipeline = Pipeline(
         name="F3 seismic attributes",
         executor=executor
     )
-    pipeline.add(dataset)
-
     dict = {"f0": dataset}
     for i in range(samples_window):
         feature_extractor = GetSelectedFeatures(axis=2, side=0, neighbor=i+1)
@@ -534,20 +378,9 @@ def create_pipeline(dataset_path: str,
         feature_extractor = GetSelectedFeatures(axis=0, side=1, neighbor=i+1)
         pipeline.add(feature_extractor, data=dataset)
         dict["fiw_r_"+str(i+1)] = feature_extractor 
-    
-
-    pipeline.add(att, X=dataset)
-    dict["lbl"] = att
 
     pipeline.add(array2df, **dict)
-    pipeline.add(features, dataframe=array2df)
-    pipeline.add(labels, dataframe=array2df)
-
-    # pipeline.add(persist, X=features2df)
-    # pipeline.add(featurePersist, X=features2df)
-
-    pipeline.add(xgboost.fit, X=features, y=labels)
-    # pipeline.add(xgboost., fname=output)
+    pipeline.add(xgboost.predict, X=array2df)
     
     try:
         if pipeline_save_location is not None:
@@ -555,12 +388,10 @@ def create_pipeline(dataset_path: str,
     except Exception as e:
         print("Erro ao salvar imagem de pipeline")
     
-    # Retorna o pipeline e o operador xgboost, donde os resultados serão obtidos
-    return pipeline, xgboost.fit
-    # return pipeline, persist
+    # Retorna o pipeline e o operador kmeans, donde os resultados serão obtidos
+    return pipeline, xgboost.predict
 
 def run(pipeline: Pipeline, last_node: Callable) -> np.ndarray:
-# def run(pipeline: Pipeline) -> np.ndarray:
     """Executa o pipeline e retorna o resultado
 
     Parameters
@@ -579,6 +410,9 @@ def run(pipeline: Pipeline, last_node: Callable) -> np.ndarray:
     start = time.time()
     pipeline.run()
     res = pipeline.get_result_from(last_node)
+    mid = time.time()
+    print(f"Tempo do get_results_from: {mid - start:.2f} s")
+    res = res.compute()
     end = time.time()
     
     print(f"Feito! Tempo de execução: {end - start:.2f} s")
@@ -586,7 +420,7 @@ def run(pipeline: Pipeline, last_node: Callable) -> np.ndarray:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Executa o pipeline")
-    parser.add_argument("--attribute", type=str, required=True, help="Nome do atributo a ser usado para treinar o modelo.")
+    parser.add_argument("--ml-model", type=str, required=True, help="Nome do atributo a ser usado para treinar o modelo.")
     parser.add_argument("--data", type=str, required=True, help="Nome do arquivo com o dado sísmico de entrada .zarr")
     parser.add_argument("--samples-window", type=int, required=True, help="Número de vizinhos na dimensão das amostras de um traço.")
     parser.add_argument("--trace-window", type=int, required=True, help="Número de vizinhos na dimensão dos traços de uma inline.")
@@ -595,21 +429,22 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default=None, help="Nome do arquivo de saída onde será gravado o modelo treinado.")
     args = parser.parse_args()
 
-    # Criamos o executor
+    
     client = Client(args.address.replace("tcp://", ""))
-    with performance_report(filename=f"Dashboard_{args.samples_window}{args.trace_window}{args.inline_window}.html"):
+    with performance_report(filename=f"Dashboard_run_model_{args.samples_window}{args.trace_window}{args.inline_window}.html"):
+        # Criamos o executor
         executor = create_executor(args.address)
         # Depois o pipeline
         pipeline, last_node = create_pipeline(args.data, 
-                                    executor, args.attribute, 
-                                    args.samples_window, 
-                                    args.trace_window, 
-                                    args.inline_window, 
-                                    pipeline_save_location="train_model_pipeline_3.svg")
-
+                                                executor, args.ml_model, 
+                                                args.samples_window, 
+                                                args.trace_window, 
+                                                args.inline_window, 
+                                                pipeline_save_location="run_model_pipeline3.svg")
+        
         # Executamos e pegamos o resultado
-        res = run(pipeline, last_node)
-        #Salvando o modelo
-        res.save_model(args.output)
-        # res.to_csv("features_dataframe.csv")
-        # print(f"O resultado é um array com o shape: {res.shape}")
+        res = run(pipeline, last_node) 
+
+        print(f"O resultado é um array com o shape: {res.shape}")
+        # Salvando o atributo sismico
+        np.save(args.output, res)

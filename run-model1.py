@@ -14,6 +14,7 @@ from dasf.datasets import Dataset
 from dasf.pipeline.executors import DaskPipelineExecutor
 from dasf.utils.decorators import task_handler
 from dasf.utils.types import is_dask_array
+from dask.distributed import Client, performance_report
 
 import xgboost as xgb
 
@@ -409,6 +410,8 @@ def run(pipeline: Pipeline, last_node: Callable) -> np.ndarray:
     start = time.time()
     pipeline.run()
     res = pipeline.get_result_from(last_node)
+    mid = time.time()
+    print(f"Tempo do get_results_from: {mid - start:.2f} s")
     res = res.compute()
     end = time.time()
     
@@ -427,26 +430,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     
-   
-    # Criamos o executor
-    executor = create_executor(args.address)
-    # Depois o pipeline
-    pipeline, last_node = create_pipeline(args.data, 
-                                            executor, args.ml_model, 
-                                            args.samples_window, 
-                                            args.trace_window, 
-                                            args.inline_window, 
-                                            pipeline_save_location="train_model_pipeline.svg")
-    
-    # Executamos e pegamos o resultado
-    res = run(pipeline, last_node) 
+    client = Client(args.address.replace("tcp://", ""))
+    with performance_report(filename=f"Dashboard_run_model_{args.samples_window}{args.trace_window}{args.inline_window}.html"):
+        # Criamos o executor
+        executor = create_executor(args.address)
+        # Depois o pipeline
+        pipeline, last_node = create_pipeline(args.data, 
+                                                executor, args.ml_model, 
+                                                args.samples_window, 
+                                                args.trace_window, 
+                                                args.inline_window, 
+                                                pipeline_save_location="run_model_pipeline1.svg")
+        
+        # Executamos e pegamos o resultado
+        res = run(pipeline, last_node) 
 
-    print(f"O resultado é um array com o shape: {res.shape}")
-    # Salvando o atributo sismico
-    np.save(args.output, res)
-
-    #     # Podemos fazer o reshape e printar a primeira inline
-    # res = res.values.reshape((401, 701, 255))
-    # import matplotlib.pyplot as plt
-    # plt.imsave("inline0.png", res[0], cmap="Reds")
-    # print(f"Figura da inline 0 salva")
+        print(f"O resultado é um array com o shape: {res.shape}")
+        # Salvando o atributo sismico
+        np.save(args.output, res)
